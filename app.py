@@ -148,7 +148,7 @@ st.markdown("<h1 class='main-header'>Marketing Campaign Response Predictor</h1>"
 st.markdown("---")
 
 # Create tabs for different sections
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Management", "Model Training", "Results", "Make Prediction", "📊 History & Database"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Management", "Model Training", "Results", "Make Prediction", "History & Database"])
 
 # ==================== TAB 1: DATA MANAGEMENT ====================
 with tab1:
@@ -412,7 +412,7 @@ with tab4:
         
         st.markdown("---")
         
-        if st.button("🔮 Make Prediction", key="predict"):
+        if st.button("Make Prediction", key="predict"):
             try:
                 with st.spinner("Making prediction..."):
                     # Prepare input
@@ -484,7 +484,7 @@ with tab5:
     st.markdown("<h2 class='section-header'>Prediction History & Database Management</h2>", unsafe_allow_html=True)
     
     # Database Statistics
-    st.subheader("📊 Database Statistics")
+    st.subheader("Database Statistics")
     stats = get_statistics()
     
     col1, col2, col3 = st.columns(3)
@@ -568,7 +568,7 @@ with tab5:
                         # Set dummy values for feature names
                         st.session_state.feature_names = ['Age', 'Income', 'Previous_Purchases', 'Email_Opened_Encoded', 'Website_Visits']
                         
-                        st.success(f"✅ Model loaded successfully!")
+                        st.success(f"Model loaded successfully!")
                         st.info("You can now use this model for predictions in the 'Make Prediction' tab.")
                     
                     except Exception as e:
@@ -581,7 +581,7 @@ with tab5:
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("📥 Export Predictions to CSV"):
+            if st.button("Export Predictions to CSV"):
                 pred_history = get_prediction_history()
                 if pred_history.empty:
                     st.warning("No predictions to export.")
@@ -596,7 +596,7 @@ with tab5:
                     st.success(f"Ready to download {len(pred_history)} predictions!")
         
         with col2:
-            if st.button("📥 Export Metrics to CSV"):
+            if st.button("Export Metrics to CSV"):
                 metrics_history = get_model_metrics_history()
                 if metrics_history.empty:
                     st.warning("No metrics to export.")
