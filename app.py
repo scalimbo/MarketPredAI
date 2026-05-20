@@ -27,23 +27,81 @@ st.set_page_config(
 # Initialize database
 init_database()
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .main-header {
-        font-size: 3em;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 10px;
-    }
-    .section-header {
-        font-size: 1.8em;
-        color: #1f77b4;
-        margin-top: 20px;
-        margin-bottom: 10px;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# Initialize theme in session state
+if 'theme' not in st.session_state:
+    st.session_state.theme = 'light'
+
+# Custom CSS for Light and Dark Modes
+def apply_theme(theme_mode):
+    if theme_mode == 'dark':
+        st.markdown("""
+            <style>
+            :root {
+                --primary-color: #00D9FF;
+                --secondary-color: #1f77b4;
+                --bg-color: #0e1117;
+                --text-color: #e0e0e0;
+                --card-bg: #161b22;
+                --border-color: #30363d;
+            }
+            .main-header {
+                font-size: 3em;
+                color: #00D9FF;
+                text-align: center;
+                margin-bottom: 10px;
+                text-shadow: 0 0 10px rgba(0, 217, 255, 0.3);
+            }
+            .section-header {
+                font-size: 1.8em;
+                color: #00D9FF;
+                margin-top: 20px;
+                margin-bottom: 10px;
+            }
+            .metric-card {
+                background: linear-gradient(135deg, #161b22 0%, #0d1117 100%);
+                border: 1px solid #30363d;
+                border-radius: 8px;
+                padding: 15px;
+                color: #e0e0e0;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+    else:  # light mode
+        st.markdown("""
+            <style>
+            :root {
+                --primary-color: #1f77b4;
+                --secondary-color: #ff7f0e;
+                --bg-color: #ffffff;
+                --text-color: #333333;
+                --card-bg: #f8f9fa;
+                --border-color: #e0e0e0;
+            }
+            .main-header {
+                font-size: 3em;
+                color: #1f77b4;
+                text-align: center;
+                margin-bottom: 10px;
+                text-shadow: 0 0 5px rgba(31, 119, 180, 0.1);
+            }
+            .section-header {
+                font-size: 1.8em;
+                color: #1f77b4;
+                margin-top: 20px;
+                margin-bottom: 10px;
+            }
+            .metric-card {
+                background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 15px;
+                color: #333333;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
+# Apply the current theme
+apply_theme(st.session_state.theme)
 
 # Initialize session state
 if 'data' not in st.session_state:
@@ -60,6 +118,30 @@ if 'metrics' not in st.session_state:
     st.session_state.metrics = None
 if 'confusion_mat' not in st.session_state:
     st.session_state.confusion_mat = None
+
+# Sidebar Theme Toggle
+with st.sidebar:
+    st.markdown("---")
+    st.subheader("⚙️ Settings")
+    
+    theme_col1, theme_col2 = st.columns([2, 1])
+    with theme_col1:
+        st.write("Theme Mode")
+    with theme_col2:
+        theme_option = st.radio(
+            "Select theme",
+            ["🌙 Dark", "☀️ Light"],
+            label_visibility="collapsed",
+            horizontal=True,
+            key="theme_toggle"
+        )
+        
+        if theme_option == "🌙 Dark":
+            st.session_state.theme = 'dark'
+        else:
+            st.session_state.theme = 'light'
+    
+    st.markdown("---")
 
 # Main title
 st.markdown("<h1 class='main-header'>Marketing Campaign Response Predictor</h1>", unsafe_allow_html=True)
