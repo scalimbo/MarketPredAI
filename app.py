@@ -1,10 +1,14 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from sklearn.svm import SVC, SVR
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.metrics import confusion_matrix, classification_report, accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 import plotly.graph_objects as go
 import plotly.express as px
 import io
@@ -50,6 +54,16 @@ with st.sidebar:
         
         new_theme = 'dark' if theme_option == "🌙 Dark" else 'light'
         st.session_state.theme = new_theme
+    
+    st.markdown("---")
+    st.subheader("📊 Model Selection")
+    st.write("**Multi-Model Support:** Train and compare multiple AI models")
+    st.markdown("""
+    - 🌲 **Random Forest** - Ensemble learning
+    - 📍 **K-Nearest Neighbors** - Instance-based
+    - ⚔️ **SVM** - Support Vector Machine
+    - 🧠 **Neural Network** - Deep learning
+    """)
     
     st.markdown("---")
 
@@ -134,13 +148,93 @@ if 'metrics' not in st.session_state:
     st.session_state.metrics = None
 if 'confusion_mat' not in st.session_state:
     st.session_state.confusion_mat = None
+if 'selected_model_type' not in st.session_state:
+    st.session_state.selected_model_type = 'Random Forest'
+if 'all_models' not in st.session_state:
+    st.session_state.all_models = {}
+if 'model_comparison' not in st.session_state:
+    st.session_state.model_comparison = {}
+if 'target_column' not in st.session_state:
+    st.session_state.target_column = None
+if 'feature_names' not in st.session_state:
+    st.session_state.feature_names = []
+if 'label_encoders' not in st.session_state:
+    st.session_state.label_encoders = {}
+if 'X_test' not in st.session_state:
+    st.session_state.X_test = None
+if 'y_test' not in st.session_state:
+    st.session_state.y_test = None
+if 'y_pred' not in st.session_state:
+    st.session_state.y_pred = None
+if 'feature_metadata' not in st.session_state:
+    st.session_state.feature_metadata = {}
+if 'original_X' not in st.session_state:
+    st.session_state.original_X = None
+if 'task_type' not in st.session_state:
+    st.session_state.task_type = 'classification'  # 'classification' or 'regression'
+
+# Model configuration
+MODEL_PARAMS = {
+    'Random Forest': {
+        'n_estimators': 100,
+        'random_state': 42,
+        'max_depth': 10
+    },
+    'KNN': {
+        'n_neighbors': 5
+    },
+    'SVM': {
+        'kernel': 'rbf',
+        'C': 1.0,
+        'probability': True,
+        'random_state': 42
+    },
+    'Neural Network': {
+        'hidden_layer_sizes': (100, 50),
+        'max_iter': 500,
+        'random_state': 42,
+        'early_stopping': True
+    }
+}
+
+def get_model(model_type, task_type='classification'):
+    """Factory function to create model instances
+    task_type: 'classification' or 'regression'
+    """
+    if task_type == 'regression':
+        # Regression models
+        if model_type == 'Random Forest':
+            return RandomForestRegressor(**MODEL_PARAMS['Random Forest'])
+        elif model_type == 'KNN':
+            return KNeighborsRegressor(**MODEL_PARAMS['KNN'])
+        elif model_type == 'SVM':
+            svm_params = MODEL_PARAMS['SVM'].copy()
+            svm_params.pop('probability', None)  # Remove probability param for regression
+            svm_params.pop('random_state', None)  # Remove random_state for SVR
+            return SVR(**svm_params)
+        elif model_type == 'Neural Network':
+            return MLPRegressor(**MODEL_PARAMS['Neural Network'])
+        else:
+            return RandomForestRegressor(**MODEL_PARAMS['Random Forest'])
+    else:
+        # Classification models (default)
+        if model_type == 'Random Forest':
+            return RandomForestClassifier(**MODEL_PARAMS['Random Forest'])
+        elif model_type == 'KNN':
+            return KNeighborsClassifier(**MODEL_PARAMS['KNN'])
+        elif model_type == 'SVM':
+            return SVC(**MODEL_PARAMS['SVM'])
+        elif model_type == 'Neural Network':
+            return MLPClassifier(**MODEL_PARAMS['Neural Network'])
+        else:
+            return RandomForestClassifier(**MODEL_PARAMS['Random Forest'])
 
 # Main title
 st.markdown("<h1 class='main-header'>Marketing Campaign Response Predictor</h1>", unsafe_allow_html=True)
 st.markdown("---")
 
 # Create tabs for different sections
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["Data Management", "Model Training", "Results", "Make Prediction", "History & Database"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Data Management", "Model Training", "Model Comparison", "Results", "Make Prediction", "History & Database"])
 
 # ==================== TAB 1: DATA MANAGEMENT ====================
 with tab1:
@@ -207,41 +301,127 @@ with tab2:
     else:
         col1, col2 = st.columns(2)
         
+        # Model selection
+        with col1:
+            st.subheader("Step 0: Select Model")
+            selected_model = st.selectbox(
+                "Choose a machine learning model",
+                ['Random Forest', 'KNN', 'SVM', 'Neural Network'],
+                key="model_selector"
+            )
+            st.session_state.selected_model_type = selected_model
+            
+            st.info(f"📊 **Selected Model:** {selected_model}")
+        
+        with col2:
+            st.subheader("Model Information")
+            model_info = {
+                'Random Forest': '🌲 Ensemble method using multiple decision trees. Best for balanced performance.',
+                'KNN': '📍 Instance-based learning. Good for small datasets.',
+                'SVM': '⚔️ Support Vector Machine. Excellent for binary classification.',
+                'Neural Network': '🧠 Multi-layer perceptron. Powerful for complex patterns.'
+            }
+            st.markdown(f"**{model_info[selected_model]}**")
+        
         # PREPROCESSING
+        col1, col2 = st.columns(2)
         with col1:
             st.subheader("Step 1: Data Preprocessing")
+            
+            # Auto-select last column as target (no selectbox needed)
+            target_col = st.session_state.data.columns[-1]
+            st.info(f"📍 **Target column (auto-selected):** {target_col}")
             
             if st.button("Preprocess Data", key="preprocess"):
                 try:
                     with st.spinner("Preprocessing data..."):
                         df = st.session_state.data.copy()
                         
-                        # Check required columns
-                        required_cols = ['Age', 'Income', 'Previous_Purchases', 'Email_Opened', 'Website_Visits']
-                        missing_cols = [col for col in required_cols if col not in df.columns]
-                        
-                        if missing_cols:
-                            st.error(f"Missing columns: {', '.join(missing_cols)}")
+                        # Check if target column exists
+                        if target_col not in df.columns:
+                            st.error(f"Target column '{target_col}' not found!")
                         else:
+                            # Separate features and target
+                            y = df[target_col].copy()
+                            X = df.drop(target_col, axis=1).copy()
+                            
+                            # Handle missing values in features
+                            initial_missing = X.isnull().sum().sum()
+                            if initial_missing > 0:
+                                st.warning(f"⚠️ Found {initial_missing} missing values. Filling with column means...")
+                                numeric_cols = X.select_dtypes(include=[np.number]).columns
+                                X[numeric_cols] = X[numeric_cols].fillna(X[numeric_cols].mean())
+                                
+                                # For categorical columns, fill with mode
+                                categorical_cols = X.select_dtypes(include=['object']).columns
+                                for col in categorical_cols:
+                                    X[col].fillna(X[col].mode()[0] if len(X[col].mode()) > 0 else 'Unknown', inplace=True)
+                            
+                            # Handle missing values in target
+                            if y.isnull().any():
+                                st.warning(f"⚠️ Found missing values in target column. Removing rows...")
+                                valid_idx = ~y.isnull()
+                                X = X[valid_idx]
+                                y = y[valid_idx]
+                            
+                            # Identify numeric and categorical columns
+                            numeric_cols = X.select_dtypes(include=[np.number]).columns.tolist()
+                            categorical_cols = X.select_dtypes(include=['object']).columns.tolist()
+                            
                             # Encode categorical variables
-                            df['Email_Opened_Encoded'] = df['Email_Opened'].map({'Yes': 1, 'No': 0})
+                            X_encoded = X.copy()
+                            label_encoders = {}
+                            for col in categorical_cols:
+                                le = LabelEncoder()
+                                X_encoded[col] = le.fit_transform(X[col].astype(str))
+                                label_encoders[col] = le
                             
-                            # Check if Email_Opened_Encoded has NaN values
-                            if df['Email_Opened_Encoded'].isnull().any():
-                                st.warning("Found unexpected values in Email_Opened column. Converting...")
-                                df['Email_Opened_Encoded'] = df['Email_Opened'].astype(str).str.lower().map({'yes': 1, 'no': 0, '1': 1, '0': 0})
+                            # Handle target variable encoding if categorical
+                            if y.dtype == 'object':
+                                le_target = LabelEncoder()
+                                y = pd.Series(le_target.fit_transform(y.astype(str)), index=y.index)
                             
-                            # Drop original categorical column
-                            df = df.drop('Email_Opened', axis=1)
+                            # Combine preprocessed data
+                            processed_df = pd.concat([X_encoded, y], axis=1)
+                            processed_df.columns = X_encoded.columns.tolist() + [target_col]
                             
-                            # Handle any remaining missing values
-                            df = df.fillna(df.mean(numeric_only=True))
+                            # Create feature metadata for user-friendly input
+                            feature_metadata = {}
+                            for col in X.columns:
+                                if col in numeric_cols:
+                                    feature_metadata[col] = {
+                                        'type': 'numeric',
+                                        'min': float(X[col].min()),
+                                        'max': float(X[col].max()),
+                                        'mean': float(X[col].mean())
+                                    }
+                                else:
+                                    feature_metadata[col] = {
+                                        'type': 'categorical',
+                                        'categories': sorted(X[col].unique().tolist())
+                                    }
                             
-                            st.session_state.preprocessed_data = df
-                            st.success("Data preprocessed successfully!")
+                            # Store in session state
+                            st.session_state.preprocessed_data = processed_df
+                            st.session_state.target_column = target_col
+                            st.session_state.feature_names = X_encoded.columns.tolist()
+                            st.session_state.label_encoders = label_encoders
+                            st.session_state.feature_metadata = feature_metadata
+                            st.session_state.original_X = X  # Store original data for reference
                             
-                            st.write("Processed data shape:", df.shape)
-                            st.write(df.head())
+                            # Determine task type: classification vs regression
+                            unique_values = len(y.unique())
+                            if unique_values > 50 or y.dtype in ['float64', 'float32']:
+                                st.session_state.task_type = 'regression'
+                                task_label = "🔢 REGRESSION (Predicting continuous values)"
+                            else:
+                                st.session_state.task_type = 'classification'
+                                task_label = "📊 CLASSIFICATION (Predicting categories)"
+                            
+                            st.success("✅ Data preprocessed successfully!")
+                            st.write(f"**Rows:** {len(processed_df)} | **Features:** {len(X_encoded.columns)}")
+                            st.info(f"**Task Type:** {task_label}")
+                            st.write(processed_df.head())
                 
                 except Exception as e:
                     st.error(f"Error during preprocessing: {str(e)}")
@@ -255,20 +435,35 @@ with tab2:
                     st.error("Please preprocess the data first!")
                 else:
                     try:
-                        with st.spinner("Training model..."):
+                        with st.spinner(f"Training {selected_model}..."):
                             df = st.session_state.preprocessed_data.copy()
+                            target_col = st.session_state.target_column
+                            task_type = st.session_state.task_type
                             
                             # Prepare features and target
-                            if 'Response' in df.columns:
-                                X = df.drop('Response', axis=1)
-                                y = df['Response']
-                            else:
-                                st.error("'Response' column not found in dataset")
+                            if target_col not in df.columns:
+                                st.error(f"Target column '{target_col}' not found in preprocessed data")
+                                st.stop()
+                            
+                            X = df.drop(target_col, axis=1)
+                            y = df[target_col]
+                            
+                            # Ensure no NaN values remain
+                            if X.isnull().any().any() or y.isnull().any():
+                                st.warning("Removing rows with missing values...")
+                                valid_idx = ~(X.isnull().any(axis=1) | y.isnull())
+                                X = X[valid_idx]
+                                y = y[valid_idx]
+                            
+                            if len(X) < 10:
+                                st.error("Not enough valid data samples after removing missing values!")
                                 st.stop()
                             
                             # Split data
+                            test_size = min(0.2, 0.5)  # Use at least some training data
+                            stratify_param = y if (task_type == 'classification' and y.nunique() == 2) else None
                             X_train, X_test, y_train, y_test = train_test_split(
-                                X, y, test_size=0.2, random_state=42, stratify=y
+                                X, y, test_size=test_size, random_state=42, stratify=stratify_param
                             )
                             
                             # Scale features
@@ -276,8 +471,8 @@ with tab2:
                             X_train_scaled = scaler.fit_transform(X_train)
                             X_test_scaled = scaler.transform(X_test)
                             
-                            # Train model
-                            model = RandomForestClassifier(n_estimators=100, random_state=42)
+                            # Train model with appropriate type
+                            model = get_model(selected_model, task_type=task_type)
                             model.fit(X_train_scaled, y_train)
                             
                             # Make predictions
@@ -288,74 +483,216 @@ with tab2:
                             st.session_state.model = model
                             st.session_state.scaler = scaler
                             st.session_state.model_trained = True
-                            
-                            # Calculate metrics
-                            metrics = {
-                                'train_accuracy': accuracy_score(y_train, y_pred_train),
-                                'test_accuracy': accuracy_score(y_test, y_pred_test),
-                                'precision': precision_score(y_test, y_pred_test, average='weighted'),
-                                'recall': recall_score(y_test, y_pred_test, average='weighted'),
-                                'f1': f1_score(y_test, y_pred_test, average='weighted')
-                            }
-                            
-                            st.session_state.metrics = metrics
-                            st.session_state.confusion_mat = confusion_matrix(y_test, y_pred_test)
+                            st.session_state.selected_model_type = selected_model
+                            st.session_state.X_test = X_test
                             st.session_state.y_test = y_test
                             st.session_state.y_pred = y_pred_test
+                            
+                            # Store model in comparison dictionary
+                            st.session_state.all_models[selected_model] = {
+                                'model': model,
+                                'scaler': scaler,
+                                'X_train_scaled': X_train_scaled,
+                                'X_test_scaled': X_test_scaled,
+                                'y_train': y_train,
+                                'y_test': y_test
+                            }
+                            
+                            # Calculate metrics based on task type
+                            if task_type == 'regression':
+                                metrics = {
+                                    'train_mae': mean_absolute_error(y_train, y_pred_train),
+                                    'test_mae': mean_absolute_error(y_test, y_pred_test),
+                                    'train_mse': mean_squared_error(y_train, y_pred_train),
+                                    'test_mse': mean_squared_error(y_test, y_pred_test),
+                                    'test_rmse': np.sqrt(mean_squared_error(y_test, y_pred_test)),
+                                    'r2_score': r2_score(y_test, y_pred_test)
+                                }
+                            else:
+                                metrics = {
+                                    'train_accuracy': accuracy_score(y_train, y_pred_train),
+                                    'test_accuracy': accuracy_score(y_test, y_pred_test),
+                                    'precision': precision_score(y_test, y_pred_test, average='weighted', zero_division=0),
+                                    'recall': recall_score(y_test, y_pred_test, average='weighted', zero_division=0),
+                                    'f1': f1_score(y_test, y_pred_test, average='weighted', zero_division=0)
+                                }
+                            
+                            st.session_state.metrics = metrics
+                            if task_type == 'classification':
+                                st.session_state.confusion_mat = confusion_matrix(y_test, y_pred_test)
                             st.session_state.feature_names = X.columns.tolist()
                             
+                            # Store metrics for comparison
+                            st.session_state.model_comparison[selected_model] = metrics
+                            
                             # Save metrics to database
-                            save_model_metrics(metrics, model_name="RandomForest", data_rows=len(df))
+                            save_model_metrics(metrics, model_name=selected_model, data_rows=len(df))
                             
                             # Save model and scaler
-                            save_model(model, scaler, metrics['test_accuracy'], model_name="RandomForest")
+                            primary_metric = metrics.get('test_accuracy', metrics.get('r2_score', 0))
+                            save_model(model, scaler, primary_metric, model_name=selected_model)
                             
-                            st.success("Model trained successfully!")
+                            st.success(f"✅ {selected_model} trained successfully on {len(X)} samples!")
+                            
+                            # Display metrics
+                            if task_type == 'regression':
+                                st.write(f"**Train MAE:** {metrics['train_mae']:.4f} | **Test MAE:** {metrics['test_mae']:.4f} | **R² Score:** {metrics['r2_score']:.4f}")
+                            else:
+                                st.write(f"**Train Accuracy:** {metrics['train_accuracy']:.4f} | **Test Accuracy:** {metrics['test_accuracy']:.4f}")
                     
                     except Exception as e:
-                        st.error(f"Error during model training: {str(e)}")
+                        st.error(f"❌ Error during model training: {str(e)}")
+                        st.write("**Tips:** Ensure your dataset has valid data and enough samples for train/test split.")
 
 
-# ==================== TAB 3: RESULTS ====================
+# ==================== TAB 3: MODEL COMPARISON ====================
 with tab3:
+    st.markdown("<h2 class='section-header'>Model Performance Comparison</h2>", unsafe_allow_html=True)
+    
+    if not st.session_state.model_comparison:
+        st.info("Train at least one model to see comparison results!")
+    else:
+        st.subheader("Trained Models")
+        trained_models = list(st.session_state.model_comparison.keys())
+        st.write(f"**Models trained:** {', '.join(trained_models)}")
+        
+        # Comparison metrics table
+        st.subheader("Metrics Comparison")
+        
+        comparison_df = pd.DataFrame(st.session_state.model_comparison).T
+        comparison_df = comparison_df.round(4)
+        st.dataframe(comparison_df, use_container_width=True)
+        
+        # Visual comparison
+        st.subheader("Visual Performance Comparison")
+        
+        # Prepare data for visualization
+        metrics_data = []
+        for model_name, metrics in st.session_state.model_comparison.items():
+            for metric_name, value in metrics.items():
+                metrics_data.append({
+                    'Model': model_name,
+                    'Metric': metric_name.replace('_', ' ').title(),
+                    'Value': value
+                })
+        
+        metrics_plot_df = pd.DataFrame(metrics_data)
+        
+        # Create comparison chart
+        fig = px.bar(
+            metrics_plot_df,
+            x='Metric',
+            y='Value',
+            color='Model',
+            barmode='group',
+            title='Model Performance Metrics Comparison'
+        )
+        fig.update_layout(height=450)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Best model analysis
+        st.subheader("Best Models by Metric")
+        
+        if st.session_state.task_type == 'regression':
+            # For regression, find best by R² score, MAE, RMSE
+            col1, col2, col3 = st.columns(3)
+            
+            if 'r2_score' in next(iter(st.session_state.model_comparison.values())):
+                best_r2 = max(st.session_state.model_comparison.items(), key=lambda x: x[1].get('r2_score', -1))
+                best_mae = min(st.session_state.model_comparison.items(), key=lambda x: x[1].get('test_mae', float('inf')))
+                best_rmse = min(st.session_state.model_comparison.items(), key=lambda x: x[1].get('test_rmse', float('inf')))
+                
+                with col1:
+                    st.metric("🏆 Best R² Score", f"{best_r2[0]}", f"{best_r2[1]['r2_score']:.4f}")
+                with col2:
+                    st.metric("📊 Best MAE", f"{best_mae[0]}", f"{best_mae[1]['test_mae']:.4f}")
+                with col3:
+                    st.metric("📈 Best RMSE", f"{best_rmse[0]}", f"{best_rmse[1]['test_rmse']:.4f}")
+        else:
+            # For classification, find best by accuracy, precision, recall, F1
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            if 'test_accuracy' in next(iter(st.session_state.model_comparison.values())):
+                best_accuracy = max(st.session_state.model_comparison.items(), key=lambda x: x[1]['test_accuracy'])
+                best_precision = max(st.session_state.model_comparison.items(), key=lambda x: x[1]['precision'])
+                best_recall = max(st.session_state.model_comparison.items(), key=lambda x: x[1]['recall'])
+                best_f1 = max(st.session_state.model_comparison.items(), key=lambda x: x[1]['f1'])
+                best_train = max(st.session_state.model_comparison.items(), key=lambda x: x[1].get('train_accuracy', 0))
+                
+                with col1:
+                    st.metric("🎯 Best Accuracy", f"{best_accuracy[0]}", f"{best_accuracy[1]['test_accuracy']:.4f}")
+                with col2:
+                    st.metric("🔍 Best Precision", f"{best_precision[0]}", f"{best_precision[1]['precision']:.4f}")
+                with col3:
+                    st.metric("📊 Best Recall", f"{best_recall[0]}", f"{best_recall[1]['recall']:.4f}")
+                with col4:
+                    st.metric("⚖️ Best F1", f"{best_f1[0]}", f"{best_f1[1]['f1']:.4f}")
+                with col5:
+                    st.metric("🏋️ Best Train Acc", f"{best_train[0]}", f"{best_train[1].get('train_accuracy', 0):.4f}")
+
+
+# ==================== TAB 4: RESULTS ====================
+with tab4:
     st.markdown("<h2 class='section-header'>Model Performance Metrics</h2>", unsafe_allow_html=True)
     
     if not st.session_state.model_trained:
         st.info("Train the model first to see results!")
     else:
+        # Show task type
+        task_emoji = "🔢" if st.session_state.task_type == 'regression' else "📊"
+        st.info(f"{task_emoji} **Task Type:** {st.session_state.task_type.upper()}")
+        
         # Metrics display
         st.subheader("Performance Metrics")
-        col1, col2, col3, col4, col5 = st.columns(5)
         
-        with col1:
-            st.metric("Accuracy", f"{st.session_state.metrics['test_accuracy']:.3f}")
-        with col2:
-            st.metric("Precision", f"{st.session_state.metrics['precision']:.3f}")
-        with col3:
-            st.metric("Recall", f"{st.session_state.metrics['recall']:.3f}")
-        with col4:
-            st.metric("F1-Score", f"{st.session_state.metrics['f1']:.3f}")
-        with col5:
-            st.metric("Train Acc.", f"{st.session_state.metrics['train_accuracy']:.3f}")
+        if st.session_state.task_type == 'regression':
+            # Regression metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric("Test MAE", f"{st.session_state.metrics.get('test_mae', 0):.4f}")
+            with col2:
+                st.metric("Test RMSE", f"{st.session_state.metrics.get('test_rmse', 0):.4f}")
+            with col3:
+                st.metric("R² Score", f"{st.session_state.metrics.get('r2_score', 0):.4f}")
+            with col4:
+                st.metric("Train MAE", f"{st.session_state.metrics.get('train_mae', 0):.4f}")
+            with col5:
+                st.metric("Train MSE", f"{st.session_state.metrics.get('train_mse', 0):.4f}")
+        else:
+            # Classification metrics
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric("Accuracy", f"{st.session_state.metrics.get('test_accuracy', 0):.3f}")
+            with col2:
+                st.metric("Precision", f"{st.session_state.metrics.get('precision', 0):.3f}")
+            with col3:
+                st.metric("Recall", f"{st.session_state.metrics.get('recall', 0):.3f}")
+            with col4:
+                st.metric("F1-Score", f"{st.session_state.metrics.get('f1', 0):.3f}")
+            with col5:
+                st.metric("Train Acc.", f"{st.session_state.metrics.get('train_accuracy', 0):.3f}")
         
-        # Confusion Matrix
-        st.subheader("Confusion Matrix")
-        
-        cm = st.session_state.confusion_mat
-        fig = go.Figure(data=go.Heatmap(
-            z=cm,
-            x=['No Response', 'Response'],
-            y=['No Response', 'Response'],
-            text=cm,
-            texttemplate='%{text}',
-            colorscale='Blues'
-        ))
-        fig.update_layout(
-            xaxis_title="Predicted",
-            yaxis_title="Actual",
-            height=400
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Confusion Matrix (only for classification)
+        if st.session_state.task_type == 'classification':
+            st.subheader("Confusion Matrix")
+            
+            cm = st.session_state.confusion_mat
+            fig = go.Figure(data=go.Heatmap(
+                z=cm,
+                x=['No Response', 'Response'],
+                y=['No Response', 'Response'],
+                text=cm,
+                texttemplate='%{text}',
+                colorscale='Blues'
+            ))
+            fig.update_layout(
+                xaxis_title="Predicted",
+                yaxis_title="Actual",
+                height=400
+            )
+            st.plotly_chart(fig, use_container_width=True)
         
         # Feature Importance
         st.subheader("Feature Importance")
@@ -372,107 +709,191 @@ with tab3:
             fig = px.bar(importance_df, x='Importance', y='Feature', orientation='h')
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info(f"⚠️ Feature Importance is not available for {st.session_state.selected_model_type} model.")
         
-        # Classification Report
-        st.subheader("Detailed Classification Report")
-        
-        report = classification_report(st.session_state.y_test, st.session_state.y_pred, output_dict=True)
-        report_df = pd.DataFrame(report).transpose()
-        st.write(report_df)
+        # Classification Report (only for classification tasks)
+        if st.session_state.task_type == 'classification':
+            st.subheader("Detailed Classification Report")
+            
+            report = classification_report(st.session_state.y_test, st.session_state.y_pred, output_dict=True)
+            report_df = pd.DataFrame(report).transpose()
+            st.write(report_df)
 
 
-# ==================== TAB 4: PREDICTION ====================
-with tab4:
+# ==================== TAB 5: PREDICTION ====================
+with tab5:
     st.markdown("<h2 class='section-header'>Customer Response Prediction</h2>", unsafe_allow_html=True)
     
     if not st.session_state.model_trained:
-        st.warning("Please train the model first before making predictions!")
+        st.warning("Please train a model first before making predictions!")
     else:
-        st.write("Enter customer details below to predict marketing campaign response:")
+        # Model selector for predictions
+        st.subheader("Select Model for Prediction")
+        available_models = list(st.session_state.all_models.keys()) if st.session_state.all_models else ['No models trained']
+        
+        pred_model_choice = st.selectbox(
+            "Choose a trained model for predictions",
+            available_models if available_models != ['No models trained'] else []
+        ) if available_models != ['No models trained'] else None
+        
+        if pred_model_choice and pred_model_choice in st.session_state.all_models:
+            selected_pred_model = st.session_state.all_models[pred_model_choice]['model']
+            selected_pred_scaler = st.session_state.all_models[pred_model_choice]['scaler']
+        else:
+            selected_pred_model = st.session_state.model
+            selected_pred_scaler = st.session_state.scaler
+            pred_model_choice = st.session_state.selected_model_type
+        
+        st.info(f"📊 **Using model:** {pred_model_choice}")
         st.markdown("---")
         
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            age = st.slider("Age", min_value=18, max_value=100, value=35, step=1)
-            income = st.number_input("Annual Income ($)", min_value=0, value=50000, step=1000)
-            previous_purchases = st.slider("Previous Purchases", min_value=0, max_value=100, value=5, step=1)
-        
-        with col2:
-            email_opened = st.radio("Email Opened?", ["Yes", "No"])
-            website_visits = st.slider("Website Visits (Last 30 Days)", min_value=0, max_value=100, value=10, step=1)
-        
-        st.markdown("---")
-        
-        if st.button("Make Prediction", key="predict"):
-            try:
-                with st.spinner("Making prediction..."):
-                    # Prepare input
-                    email_encoded = 1 if email_opened == "Yes" else 0
-                    
-                    input_data = np.array([[
-                        age,
-                        income,
-                        previous_purchases,
-                        email_encoded,
-                        website_visits
-                    ]])
-                    
-                    # Scale input
-                    input_scaled = st.session_state.scaler.transform(input_data)
-                    
-                    # Make prediction
-                    prediction = st.session_state.model.predict(input_scaled)[0]
-                    probability = st.session_state.model.predict_proba(input_scaled)[0]
-                    
-                    # Save prediction to database
-                    save_prediction(age, income, previous_purchases, email_opened, website_visits, prediction, probability)
-                    
-                    # Display results
-                    st.markdown("---")
-                    st.subheader("Prediction Result")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if prediction == 1:
-                            st.success("Customer WILL respond to the campaign")
-                        else:
-                            st.error("Customer will NOT respond to the campaign")
-                    
-                    with col2:
-                        response_prob = probability[1] * 100
-                        no_response_prob = probability[0] * 100
-                        st.metric("Response Probability", f"{response_prob:.1f}%")
-                    
-                    # Probability chart
-                    st.subheader("Confidence Breakdown")
-                    
-                    prob_data = {
-                        'Outcome': ['Will Respond', 'Will Not Respond'],
-                        'Probability': [response_prob, no_response_prob]
-                    }
-                    prob_df = pd.DataFrame(prob_data)
-                    
-                    fig = px.bar(prob_df, x='Outcome', y='Probability', color='Outcome',
-                                color_discrete_map={'Will Respond': '#00CC96', 'Will Not Respond': '#EF553B'})
-                    fig.update_layout(height=400, showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Input summary
-                    st.subheader("Input Summary")
-                    summary_df = pd.DataFrame({
-                        'Feature': ['Age', 'Income', 'Previous Purchases', 'Email Opened', 'Website Visits'],
-                        'Value': [age, f"${income:,}", previous_purchases, email_opened, website_visits]
-                    })
-                    st.write(summary_df)
+        if hasattr(st.session_state, 'feature_names') and st.session_state.feature_names and st.session_state.feature_metadata:
+            st.write(f"Enter values for the **{len(st.session_state.feature_names)} features** below:")
+            st.markdown("---")
             
-            except Exception as e:
-                st.error(f"Error making prediction: {str(e)}")
+            # Create input fields based on feature metadata
+            feature_values = {}
+            user_friendly_values = {}
+            cols = st.columns(min(3, len(st.session_state.feature_names)))
+            
+            for idx, feature in enumerate(st.session_state.feature_names):
+                with cols[idx % len(cols)]:
+                    metadata = st.session_state.feature_metadata.get(feature, {})
+                    
+                    if metadata.get('type') == 'numeric':
+                        # For numeric features, use slider
+                        min_val = metadata.get('min', 0)
+                        max_val = metadata.get('max', 100)
+                        mean_val = metadata.get('mean', (min_val + max_val) / 2)
+                        
+                        user_value = st.slider(
+                            f"📊 {feature}",
+                            min_value=float(min_val),
+                            max_value=float(max_val),
+                            value=float(mean_val),
+                            step=(max_val - min_val) / 100,  # 1% increments
+                            key=f"slider_{feature}"
+                        )
+                        user_friendly_values[feature] = user_value
+                        feature_values[feature] = user_value
+                    
+                    elif metadata.get('type') == 'categorical':
+                        # For categorical features, use dropdown
+                        categories = metadata.get('categories', [])
+                        user_value = st.selectbox(
+                            f"📋 {feature}",
+                            categories,
+                            key=f"select_{feature}"
+                        )
+                        user_friendly_values[feature] = user_value
+                        # Encode the categorical value
+                        le = st.session_state.label_encoders.get(feature)
+                        if le:
+                            feature_values[feature] = le.transform([user_value])[0]
+                        else:
+                            feature_values[feature] = user_value
+            
+            st.markdown("---")
+            
+            if st.button("Make Prediction", key="predict"):
+                try:
+                    with st.spinner(f"Making prediction with {pred_model_choice}..."):
+                        # Prepare input in correct order (already encoded)
+                        input_data = np.array([[feature_values[f] for f in st.session_state.feature_names]])
+                        
+                        # Scale input using the stored scaler
+                        input_scaled = selected_pred_scaler.transform(input_data)
+                        
+                        # Make prediction
+                        prediction = selected_pred_model.predict(input_scaled)[0]
+                        
+                        if st.session_state.task_type == 'regression':
+                            probability = None
+                        else:
+                            probability = selected_pred_model.predict_proba(input_scaled)[0]
+                        
+                        # Save prediction to database
+                        try:
+                            save_prediction(
+                                age=user_friendly_values.get(st.session_state.feature_names[0], 0),
+                                income=user_friendly_values.get(st.session_state.feature_names[1], 0) if len(st.session_state.feature_names) > 1 else 0,
+                                previous_purchases=user_friendly_values.get(st.session_state.feature_names[2], 0) if len(st.session_state.feature_names) > 2 else 0,
+                                email_opened=str(user_friendly_values.get(st.session_state.feature_names[3], "No")) if len(st.session_state.feature_names) > 3 else "Unknown",
+                                website_visits=user_friendly_values.get(st.session_state.feature_names[4], 0) if len(st.session_state.feature_names) > 4 else 0,
+                                prediction=prediction,
+                                probability=probability
+                            )
+                        except:
+                            pass  # Skip database save if parameters don't match
+                        
+                        # Display results
+                        st.markdown("---")
+                        st.subheader("Prediction Result")
+                        
+                        if st.session_state.task_type == 'regression':
+                            # Regression prediction
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                st.success(f"✅ Predicted Value: {prediction:.4f}")
+                            
+                            with col2:
+                                st.metric("Prediction", f"{prediction:.4f}")
+                            
+                            st.info(f"🔢 **Regression Model:** Predicts continuous values")
+                        
+                        else:
+                            # Classification prediction
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                if prediction == 1:
+                                    st.success("✅ Positive Prediction")
+                                else:
+                                    st.error("❌ Negative Prediction")
+                            
+                            with col2:
+                                response_prob = probability[1] * 100 if len(probability) > 1 else probability[0] * 100
+                                st.metric("Confidence Score", f"{response_prob:.1f}%")
+                            
+                            # Probability chart
+                            st.subheader("Confidence Breakdown")
+                            
+                            if len(probability) == 2:
+                                prob_data = {
+                                    'Outcome': ['Positive', 'Negative'],
+                                    'Probability (%)': [probability[1] * 100, probability[0] * 100]
+                                }
+                            else:
+                                prob_data = {
+                                    'Outcome': [f'Class {i}' for i in range(len(probability))],
+                                    'Probability (%)': [p * 100 for p in probability]
+                                }
+                            
+                            prob_df = pd.DataFrame(prob_data)
+                            
+                            fig = px.bar(prob_df, x='Outcome', y='Probability (%)', color='Outcome')
+                            fig.update_layout(height=400, showlegend=False)
+                            st.plotly_chart(fig, use_container_width=True)
+                        
+                        # Input summary
+                        st.subheader("Your Input Summary")
+                        summary_df = pd.DataFrame({
+                            'Feature': list(user_friendly_values.keys()),
+                            'Your Input': [str(v) for v in user_friendly_values.values()]
+                        })
+                        st.dataframe(summary_df, use_container_width=True)
+                
+                except Exception as e:
+                    st.error(f"❌ Error making prediction: {str(e)}")
+                    st.write(f"Details: {str(e)}")
+        else:
+            st.warning("⚠️ No model trained yet. Please train a model first in the Model Training tab.")
 
 
-# ==================== TAB 5: HISTORY & DATABASE ====================
-with tab5:
+# ==================== TAB 6: HISTORY & DATABASE ====================
+with tab6:
     st.markdown("<h2 class='section-header'>Prediction History & Database Management</h2>", unsafe_allow_html=True)
     
     # Database Statistics
