@@ -750,6 +750,32 @@ with tab5:
         
         if hasattr(st.session_state, 'feature_names') and st.session_state.feature_names and st.session_state.feature_metadata:
             st.write(f"Enter values for the **{len(st.session_state.feature_names)} features** below:")
+            
+            # Display field information for non-technical users
+            with st.expander("📋 Field Guide - What Each Field Means", expanded=False):
+                guide_data = []
+                for feature in st.session_state.feature_names:
+                    metadata = st.session_state.feature_metadata.get(feature, {})
+                    if metadata.get('type') == 'numeric':
+                        min_val = metadata.get('min', 0)
+                        max_val = metadata.get('max', 100)
+                        guide_data.append({
+                            'Field': feature,
+                            'Type': '📊 Number',
+                            'Range': f"{float(min_val):.0f} to {float(max_val):.0f}",
+                            'Description': f"Enter a value between {float(min_val):.0f} and {float(max_val):.0f}"
+                        })
+                    else:
+                        categories = metadata.get('categories', [])
+                        guide_data.append({
+                            'Field': feature,
+                            'Type': '📋 Choice',
+                            'Range': f"{len(categories)} options",
+                            'Description': ', '.join(str(c) for c in categories[:3]) + ("..." if len(categories) > 3 else "")
+                        })
+                guide_df = pd.DataFrame(guide_data)
+                st.dataframe(guide_df, use_container_width=True, hide_index=True)
+            
             st.markdown("---")
             
             # Create input fields based on feature metadata
@@ -762,30 +788,41 @@ with tab5:
                     metadata = st.session_state.feature_metadata.get(feature, {})
                     
                     if metadata.get('type') == 'numeric':
-                        # For numeric features, use slider
+                        # For numeric features, use slider with human-readable labels
                         min_val = metadata.get('min', 0)
                         max_val = metadata.get('max', 100)
                         mean_val = metadata.get('mean', (min_val + max_val) / 2)
                         
+                        st.write(f"**📊 {feature}**")
+                        st.write(f"Range: {float(min_val):.0f} to {float(max_val):.0f}")
+                        
                         user_value = st.slider(
-                            f"📊 {feature}",
+                            label=f"Select {feature}",
                             min_value=float(min_val),
                             max_value=float(max_val),
                             value=float(mean_val),
-                            step=(max_val - min_val) / 100,  # 1% increments
-                            key=f"slider_{feature}"
+                            step=(max_val - min_val) / 100 if (max_val - min_val) / 100 > 0 else 0.1,
+                            key=f"slider_{feature}",
+                            label_visibility="collapsed"
                         )
+                        st.write(f"**Selected: {user_value:.2f}**")
                         user_friendly_values[feature] = user_value
                         feature_values[feature] = user_value
                     
                     elif metadata.get('type') == 'categorical':
-                        # For categorical features, use dropdown
+                        # For categorical features, use dropdown with actual values
                         categories = metadata.get('categories', [])
+                        
+                        st.write(f"**📋 {feature}**")
+                        st.write(f"Choose one of: {', '.join(str(c) for c in categories)}")
+                        
                         user_value = st.selectbox(
-                            f"📋 {feature}",
-                            categories,
-                            key=f"select_{feature}"
+                            label=f"Select {feature}",
+                            options=categories,
+                            key=f"select_{feature}",
+                            label_visibility="collapsed"
                         )
+                        st.write(f"**Selected: {user_value}**")
                         user_friendly_values[feature] = user_value
                         # Encode the categorical value
                         le = st.session_state.label_encoders.get(feature)
@@ -808,10 +845,14 @@ with tab5:
                         # Make prediction
                         prediction = selected_pred_model.predict(input_scaled)[0]
                         
-                        if st.session_state.task_type == 'regression':
-                            probability = None
+                        # Only call predict_proba if the model supports it (classification models)
+                        if hasattr(selected_pred_model, 'predict_proba'):
+                            try:
+                                probability = selected_pred_model.predict_proba(input_scaled)[0]
+                            except:
+                                probability = None
                         else:
-                            probability = selected_pred_model.predict_proba(input_scaled)[0]
+                            probability = None
                         
                         # Save prediction to database
                         try:
@@ -831,7 +872,10 @@ with tab5:
                         st.markdown("---")
                         st.subheader("Prediction Result")
                         
-                        if st.session_state.task_type == 'regression':
+                        # Check if this is a regression or classification based on probability
+                        is_regression = (probability is None) or (st.session_state.task_type == 'regression')
+                        
+                        if is_regression:
                             # Regression prediction
                             col1, col2 = st.columns(2)
                             
